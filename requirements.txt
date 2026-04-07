@@ -1,0 +1,32 @@
+# MG Apparel HR Chatbot — Python Dependencies
+# All free, open-source, no API keys required
+
+# Web framework
+flask>=3.0.0
+
+# Streamlit web app (for Streamlit Cloud deployment)
+streamlit>=1.35.0
+
+# Local .env support (optional)
+python-dotenv>=1.0.0
+
+# Local LLM interface (talks to Ollama)
+requests>=2.31.0
+
+# Local vector database (stores embeddings on disk)
+chromadb>=0.5.0
+
+# Local text embeddings (~90 MB download, then fully offline)
+sentence-transformers>=3.0.0
+
+# File system watcher (auto-reindex on file changes)
+watchdog>=4.0.0
+
+# Document parsers
+PyMuPDF>=1.24.0        # PDF support
+python-docx>=1.1.0     # Word document support
+openpyxl>=3.1.0        # Excel support
+
+# Cloud deployment (WSGI server + optional tunnel)
+gunicorn>=22.0.0
+pyngrok>=7.0.0

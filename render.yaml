@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: mg-hr-chatbot
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn hr_chatbot:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180
+    autoDeploy: true
+    envVars:
+      - key: HR_BOT_BACKEND
+        value: openai
+      - key: HR_BOT_OPENAI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: HR_BOT_OPENAI_MODEL
+        value: llama-3.1-8b-instant
+      - key: HR_BOT_OPENAI_API_KEY
+        sync: false
+      - key: HR_BOT_MASTER_KEY
+        sync: false
+      - key: HR_BOT_MODEL
+        value: llama3.2:1b
+      - key: HR_BOT_FALLBACK_MODEL
+        value: llama3.2:1b
+      - key: HR_BOT_TIMEOUT
+        value: "60"
+      - key: HR_BOT_WATCHER
+        value: "0"
+      - key: HR_BOT_SHARE
+        value: "0"

@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Streamlit secrets (never commit)
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# Temp/broken venv folders
+.venv.broken-*/
+venv.broken-*/
+
+# Logs
+*.log
+server.err
+server.log
+
+# Generated vector DB
+Bot Files/chroma_db/
+
+# Policy documents (often confidential)
+Data/**/*.pdf
+Data/**/*.PDF
