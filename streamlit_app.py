@@ -32,6 +32,16 @@ from hr_chatbot import HRChatbot  # noqa: E402
 st.set_page_config(page_title="HR Assistant", layout="wide")
 
 
+SUGGESTED_QUESTIONS = [
+    "How many annual leaves do I get?",
+    "How to apply for sick leave?",
+    "What are the rules for casual leave?",
+    "What is the overtime policy?",
+    "What are the working hours?",
+    "How to raise a grievance?",
+]
+
+
 @st.cache_resource(show_spinner=False)
 def get_bot() -> HRChatbot:
     bot = HRChatbot()
@@ -46,7 +56,11 @@ if "history" not in st.session_state:
     st.session_state.history = []  # list[dict] with {role, content}
 
 
-with st.sidebar:
+def _clear_chat() -> None:
+    st.session_state.history = []
+
+
+def _render_sidebar(bot: HRChatbot) -> None:
     st.title("HR Assistant")
     st.caption("Answers from your HR policy manuals")
 
@@ -54,34 +68,66 @@ with st.sidebar:
     st.write(f"Model: **{bot.model_info()}**")
 
     try:
-        docs_count = len(bot.list_docs())
+        docs = sorted(bot.list_docs(), key=lambda d: str(d.get("name", "")).lower())
     except Exception:
-        docs_count = 0
-    st.write(f"Documents: **{docs_count}**")
+        docs = []
 
-    if st.button("Re-index documents", use_container_width=True):
+    st.write(f"Documents: **{len(docs)}**")
+
+    if docs:
+        st.subheader("Indexed files")
+        for d in docs:
+            name = str(d.get("name", ""))
+            chunks = d.get("chunks")
+            left, right = st.columns([6, 1])
+            left.write(name)
+            right.write(str(chunks) if chunks is not None else "")
+
+
+with st.sidebar:
+    _render_sidebar(bot)
+
+title_col, clear_col, reindex_col = st.columns([6, 1, 1])
+with title_col:
+    st.header("Chat")
+with clear_col:
+    if st.button("Clear", use_container_width=True):
+        _clear_chat()
+        st.rerun()
+with reindex_col:
+    if st.button("Re-index", use_container_width=True):
         with st.spinner("Re-indexing…"):
             bot.index_all()
         st.success("Re-index complete")
-
-
-st.header("Chat")
+        st.rerun()
 
 for turn in st.session_state.history:
     role = "assistant" if turn.get("role") == "assistant" else "user"
     with st.chat_message(role):
         st.markdown(turn.get("content", ""))
 
+st.caption("Quick questions")
+quick_prompt = None
+chips_cols = st.columns(3)
+for i, q in enumerate(SUGGESTED_QUESTIONS):
+    if chips_cols[i % 3].button(q, key=f"chip_{i}", use_container_width=True):
+        quick_prompt = q
 
 prompt = st.chat_input("Ask any HR question…")
+if not prompt and quick_prompt:
+    prompt = quick_prompt
+
 if prompt:
+    # Pass only the PRIOR turns to the bot (avoid duplicating the current prompt).
+    prior_history = st.session_state.history[-10:]
+
     st.session_state.history.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking…"):
-            reply = bot.chat(prompt, st.session_state.history[-10:])
+            reply = bot.chat(prompt, prior_history)
         st.markdown(reply)
 
     st.session_state.history.append({"role": "assistant", "content": reply})
