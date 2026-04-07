@@ -150,10 +150,7 @@ def _render_chat(bot: HRChatbot) -> None:
             st.rerun()
 
     if not st.session_state.history:
-        st.info(
-            "Hello! Ask me about leave, attendance, benefits, grievances, SOPs, or any HR topic.",
-            icon=None,
-        )
+        st.info("Hello! Ask me about leave, attendance, benefits, grievances, SOPs, or any HR topic.")
 
     for turn in st.session_state.history:
         role = "assistant" if turn.get("role") == "assistant" else "user"
@@ -234,7 +231,7 @@ def _render_suggest_changes(bot: HRChatbot) -> None:
     if out:
         st.text_area("Suggestions", out, height=420)
     else:
-        st.info("Select a document and click Analyse Document.", icon=None)
+        st.info("Select a document and click Analyse Document.")
 
 if mode == "Chat":
     _render_chat(bot)
