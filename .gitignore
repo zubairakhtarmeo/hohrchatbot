@@ -24,6 +24,3 @@ server.log
 # Generated vector DB
 Bot Files/chroma_db/
 
-# Policy documents (often confidential)
-Data/**/*.pdf
-Data/**/*.PDF
