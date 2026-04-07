@@ -14,7 +14,8 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 
 # Local vector database (stores embeddings on disk)
-chromadb>=0.5.0
+# Pin to a stable version to avoid Streamlit Cloud resolving a breaking combo.
+chromadb==1.5.5
 
 # Local text embeddings (~90 MB download, then fully offline)
 sentence-transformers>=3.0.0

@@ -77,9 +77,116 @@ CHAT_TIMEOUT  = 300    # API window; frontend handles waiting without aborting
 # ──────────────────────────────────────────────────────────────────────────────
 
 import requests
-import chromadb
-from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
+
+# ChromaDB is used as a persistent vector store. On some cloud environments
+# (notably Streamlit Community Cloud), chromadb can fail to import due to
+# protobuf / opentelemetry dependency issues. Keep the app running by falling
+# back to a lightweight in-memory index.
+try:
+  import chromadb
+  from chromadb.config import Settings
+  _CHROMA_IMPORT_OK = True
+except Exception as _chroma_import_err:
+  chromadb = None  # type: ignore[assignment]
+  Settings = None  # type: ignore[assignment]
+  _CHROMA_IMPORT_OK = False
+  _CHROMA_IMPORT_ERROR = _chroma_import_err
+
+
+class _InMemoryCollection:
+  """Minimal subset of the Chroma Collection API used by this app."""
+
+  def __init__(self):
+    self._ids: list[str] = []
+    self._embeddings: list[list[float]] = []
+    self._documents: list[str] = []
+    self._metadatas: list[dict] = []
+
+  def add(self, *, ids, embeddings, documents, metadatas):
+    self._ids.extend(list(ids))
+    self._embeddings.extend(list(embeddings))
+    self._documents.extend(list(documents))
+    self._metadatas.extend(list(metadatas))
+
+  def get(self, *, where=None):
+    if not where:
+      return {
+        "ids": list(self._ids),
+        "documents": list(self._documents),
+        "metadatas": list(self._metadatas),
+      }
+
+    # Only support the filter used by this codebase: {"source": <filename>}
+    source = where.get("source") if isinstance(where, dict) else None
+    if source is None:
+      return {"ids": []}
+
+    ids, docs, metas = [], [], []
+    for i, meta in enumerate(self._metadatas):
+      if meta.get("source") == source:
+        ids.append(self._ids[i])
+        docs.append(self._documents[i])
+        metas.append(meta)
+    return {"ids": ids, "documents": docs, "metadatas": metas}
+
+  def delete(self, *, ids):
+    to_delete = set(ids or [])
+    if not to_delete:
+      return
+
+    new_ids, new_emb, new_docs, new_metas = [], [], [], []
+    for i, row_id in enumerate(self._ids):
+      if row_id in to_delete:
+        continue
+      new_ids.append(row_id)
+      new_emb.append(self._embeddings[i])
+      new_docs.append(self._documents[i])
+      new_metas.append(self._metadatas[i])
+
+    self._ids = new_ids
+    self._embeddings = new_emb
+    self._documents = new_docs
+    self._metadatas = new_metas
+
+  def count(self):
+    return len(self._ids)
+
+  def query(self, *, query_embeddings, n_results, include):
+    import math
+    import heapq
+
+    if not self._ids:
+      return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+    q = (query_embeddings or [[]])[0]
+
+    def _cosine_distance(u, v):
+      dot = 0.0
+      nu = 0.0
+      nv = 0.0
+      for a, b in zip(u, v):
+        dot += float(a) * float(b)
+        nu += float(a) * float(a)
+        nv += float(b) * float(b)
+      if nu <= 0.0 or nv <= 0.0:
+        return 1.0
+      sim = dot / (math.sqrt(nu) * math.sqrt(nv))
+      # numerical safety
+      if sim > 1.0:
+        sim = 1.0
+      elif sim < -1.0:
+        sim = -1.0
+      return 1.0 - sim
+
+    scored = [(_cosine_distance(emb, q), i) for i, emb in enumerate(self._embeddings)]
+    top = heapq.nsmallest(int(n_results), scored, key=lambda t: t[0])
+
+    docs = [self._documents[i] for _, i in top]
+    metas = [self._metadatas[i] for _, i in top]
+    dists = [float(d) for d, _ in top]
+
+    return {"documents": [docs], "metadatas": [metas], "distances": [dists]}
 
 try:    import fitz;                        PDF_OK   = True
 except ImportError:                         PDF_OK   = False
@@ -131,24 +238,37 @@ class HRChatbot:
           self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
         print("[AI] Embedding model ready [OK]")
 
-        # Chroma persistence can fail on Windows if the disk is full or SQLite cannot write.
-        # In that case, fall back to an in-memory DB so the app still runs.
-        try:
-          self.chroma = chromadb.PersistentClient(
-            path=CHROMA_DIR,
-            settings=Settings(anonymized_telemetry=False),
+        # Chroma persistence can fail (or chromadb can fail to import) in some cloud environments.
+        # In those cases, fall back to an in-memory index so the app still runs.
+        self.chroma = None
+        self._chroma_persistent = False
+
+        if _CHROMA_IMPORT_OK:
+          try:
+            self.chroma = chromadb.PersistentClient(
+              path=CHROMA_DIR,
+              settings=Settings(anonymized_telemetry=False),
+            )
+            self._chroma_persistent = True
+          except Exception as e:
+            self._chroma_persistent = False
+            print(f"[Chroma] [WARN] Persistent DB unavailable ({e}). Falling back to in-memory index for this run.")
+            try:
+              self.chroma = chromadb.EphemeralClient(
+                settings=Settings(anonymized_telemetry=False),
+              )
+            except Exception:
+              self.chroma = None
+        else:
+          print("[Chroma] [WARN] chromadb failed to import. Using in-memory index (no persistence).")
+
+        if self.chroma is not None:
+          self.col = self.chroma.get_or_create_collection(
+              name="hr_docs_v3",
+              metadata={"hnsw:space": "cosine"},
           )
-          self._chroma_persistent = True
-        except Exception as e:
-          self._chroma_persistent = False
-          print(f"[Chroma] [WARN] Persistent DB unavailable ({e}). Falling back to in-memory index for this run.")
-          self.chroma = chromadb.EphemeralClient(
-            settings=Settings(anonymized_telemetry=False),
-          )
-        self.col = self.chroma.get_or_create_collection(
-            name="hr_docs_v3",
-            metadata={"hnsw:space": "cosine"},
-        )
+        else:
+          self.col = _InMemoryCollection()
         self._meta_path = os.path.join(CHROMA_DIR, "meta.json")
         self._meta: dict = self._load_meta()
 
